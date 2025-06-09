@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3GPP Simulator - Final Version</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="panel">
+            <h1>3GPP Simulator</h1>
+            <div class="section">
+                <h3>Network Status</h3>
+                <div class="stats-grid">
+                    <div class="stat-item"><div class="stat-value" id="ue-cnt">0</div><div class="stat-label">Active UEs</div></div>
+                    <div class="stat-item"><div class="stat-value" id="bs-cnt">0</div><div class="stat-label">Active Cells</div></div>
+                    <div class="stat-item"><div class="stat-value" id="rrc-cnt">0</div><div class="stat-label">RRC Connected</div></div>
+                    <div class="stat-item"><div class="stat-value" id="msg-cnt">0</div><div class="stat-label">Pending Msgs</div></div>
+                </div>
+            </div>
+            <!-- Removed Active Procedures section -->
+            <div class="section">
+                <h3>Signaling Messages</h3>
+                <div class="msg-log" id="msg-log"></div>
+            </div>
+            <div class="section">
+                <h3>UE State & Procedures (% of Journey)</h3>
+                <div id="grid-stats-log"></div>
+            </div>
+        </div>
+        <div class="main-content">
+            <div class="canvas-stack">
+                <div class="controls">
+                    <button id="toggle-sim-btn">▶ Start/Stop</button>
+                    <button id="add-ue-btn">+ Add UE</button>
+                    <button id="reset-sim-btn">↺ Reset</button>
+                    <label for="speed-slider">Speed: </label><input type="range" id="speed-slider" min="1" max="30" value="3">
+                    <label for="scan-interval-slider">Scan: </label><input type="range" id="scan-interval-slider" min="500" max="5000" value="2000" step="100">
+                    <label for="gnb-size-slider">gNB Size: </label><input type="range" id="gnb-size-slider" min="0.1" max="1.0" value="0.5" step="0.05">
+                    <label for="ntn-size-slider">NTN Size: </label><input type="range" id="ntn-size-slider" min="0.1" max="1.0" value="0.5" step="0.05">
+                    <label for="turn-prob-slider">Turn Prob: </label><input type="range" id="turn-prob-slider" min="0" max="1" value="0.3" step="0.05">
+                </div>
+                <canvas id="map"></canvas>
+                <div id="ue-plot-container">
+                    <h3>UE Throughput & Signal Quality</h3>
+                    <div class="plot-legend">
+                        <span>Plot Background:</span>
+                        <div class="plot-legend-item"><div class="plot-legend-color-box" style="background-color: #4CAF50;"></div>High</div>
+                        <div class="plot-legend-item"><div class="plot-legend-color-box" style="background-color: #FFEB3B;"></div>Medium</div>
+                        <div class="plot-legend-item"><div class="plot-legend-color-box" style="background-color: #F44336;"></div>Low</div>
+                    </div>
+                    <canvas id="ue-plot"></canvas>
+                </div>
+            </div>
+            <div class="panel">
+                <div class="section">
+                    <h3>Legend</h3>
+                    <div class="legend-item"><div class="legend-icon" style="background:#ff6b6b; border-radius:3px;"></div>gNB (10 Mbps)</div>
+                    <div class="legend-item"><div class="legend-icon" style="background:#00bcd4"></div>Satellite (3-6 Mbps)</div>
+                    <div class="legend-item"><div class="legend-icon" style="background:#ffa726; border-radius:3px;"></div>Ground Station</div>
+                    <div class="legend-item"><div class="legend-icon" style="background:#4caf50"></div>UE Connected</div>
+                    <div class="legend-item"><div class="legend-icon" style="background:#00bcd4"></div>UE Signalling</div>
+                    <div class="legend-item"><div class="legend-icon" style="background:#757575"></div>UE Idle/Scanning</div>
+                </div>
+                <div class="section">
+                    <h3>Cell Throughput</h3>
+                    <canvas id="gnb-plot" width="250" height="150"></canvas>
+                </div>
+                 <div class="section" style="font-size: 10px; line-height: 1.5;">
+                    <strong>Simulation Model:</strong><br>
+                    • **Propagation:** gNB coverage is a pre-calculated heatmap. Real-time obstructions are applied on top. NTN uses concentric quality zones.<br>
+                    • **Scheduling:** Cell capacity is shared between UEs using proportional fair scheduling based on their signal quality multiplier.<br>
+                    • **Mobility:** UEs drop calls on Radio Link Failure (RLF) and scan periodically when idle to find service.
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+// Content of index.js is now inlined and refactored here
+
+const simulationCoreConfig = {
+    COVERAGE_GRID_RESOLUTION: 15,
+    GNB_CAPACITY: 10,
+    GNB_PREFERENCE_DB: 5,
+    GS_FEEDER_CAPACITY: 3,
+    GNB_MAX_RADIUS: 250,
+    NTN_MAX_RADIUS: 300,
+    GNB_COVERAGE_ZONES: [
+        { radius: 250 * 0.80, multiplier: 1.0 },
+        { radius: 250 * 0.95, multiplier: 0.5 },
+        { radius: 250 * 1.00, multiplier: 0.1 },
+    ],
+    NTN_COVERAGE_ZONES: [
+        { radius: 300 * 0.80, multiplier: 1.0, color: '#4CAF50' },
+        { radius: 300 * 0.95, multiplier: 0.5, color: '#FFEB3B' },
+        { radius: 300 * 1.00, multiplier: 0.2, color: '#F44336' }
+    ],
+    REF_WIDTH: 900,
+    REF_HEIGHT: 600,
+    REF_GRID_BLOCK_SIZE: 100,
+    STREET_WIDTH: 10,
+    LOG_MAX_SIZE: 50,
+    UE_TURN_PROBABILITY_AT_INTERSECTION: 0.3, // Existing, will be updated by slider
+    // Parameters for dynamic turn probability (if you choose to re-implement)
+    // BASE_TURN_PROBABILITY_ON_RESET: 0.1, 
+    // UE_TURN_PROBABILITY_INCREMENT_STEP: 0.05, // This would be controlled by the slider
+    // MAX_ACCUMULATED_TURN_PROBABILITY: 0.9,
+};
+
+const simulationGeometryUtils = {
+    toroidalDist(a, b, refWidth, refHeight) {
+        const dx = Math.min(Math.abs(a.x - b.x), refWidth - Math.abs(a.x - b.x));
+        const dy = Math.min(Math.abs(a.y - b.y), refHeight - Math.abs(a.y - b.y));
+        return Math.sqrt(dx * dx + dy * dy);
+    },
+    lineIntersectsRect(x1, y1, x2, y2, rx, ry, rw, rh) {
+        const check = (xa, ya, xb, yb, xc, yc, xd, yd) => {
+            const d = (xa - xb) * (yc - yd) - (ya - yb) * (xc - xd);
+            if (Math.abs(d) < 1e-6) return false;
+            const t = ((xa - xc) * (yc - yd) - (ya - yc) * (xc - xd)) / d;
+            const u = -((xa - xb) * (ya - yc) - (ya - yb) * (xa - xc)) / d;
+            return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+        };
+        return check(x1, y1, x2, y2, rx, ry, rx + rw, ry) ||
+               check(x1, y1, x2, y2, rx + rw, ry, rx + rw, ry + rh) ||
+               check(x1, y1, x2, y2, rx + rw, ry + rh, rx, ry + rh) ||
+               check(x1, y1, x2, y2, rx, ry + rh, rx, ry);
+    },
+    getWrappedPaths(p1, p2, refWidth, refHeight) {
+        const paths = [];
+        for (const dx of [-refWidth, 0, refWidth]) {
+            for (const dy of [-refHeight, 0, refHeight]) {
+                paths.push({ x1: p1.x, y1: p1.y, x2: p2.x + dx, y2: p2.y + dy });
+            }
+        }
+        const minDist = Math.min(...paths.map(p => Math.sqrt((p.x2 - p.x1) ** 2 + (p.y2 - p.y1) ** 2)));
+        return paths.filter(p => Math.sqrt((p.x2 - p.x1) ** 2 + (p.y2 - p.y1) ** 2) <= minDist + 0.001);
+    },
+    countBlockedBlocks(p1, p2, blocks, refWidth, refHeight) {
+        const paths = this.getWrappedPaths(p1, p2, refWidth, refHeight);
+        let minPathCount = Infinity;
+        for (const path of paths) {
+            let pathCount = 0;
+            for (const block of blocks) {
+                if (this.lineIntersectsRect(
+                    path.x1, path.y1,
+                    path.x2, path.y2,
+                    block.x, block.y,
+                    block.w, block.h)) {
+                    pathCount++;
+                }
+            }
+            minPathCount = Math.min(minPathCount, pathCount);
+        }
+        return minPathCount === Infinity ? 0 : minPathCount;
+    }
+};
+
+const simulationSignalUtils = {
+    generateCoverageGrid(cell, scale, config, toroidalDistFn) {
+        const grid = [];
+        const gridWidth = Math.ceil(config.REF_WIDTH / config.COVERAGE_GRID_RESOLUTION);
+        const gridHeight = Math.ceil(config.REF_HEIGHT / config.COVERAGE_GRID_RESOLUTION);
+
+        for (let gx = 0; gx < gridWidth; gx++) {
+            grid[gx] = [];
+            for (let gy = 0; gy < gridHeight; gy++) {
+                const mapPosLogical = { x: gx * config.COVERAGE_GRID_RESOLUTION + config.COVERAGE_GRID_RESOLUTION / 2, y: gy * config.COVERAGE_GRID_RESOLUTION + config.COVERAGE_GRID_RESOLUTION / 2 };
+                const cellPosLogical = cell.pos;
+                const dist = toroidalDistFn(mapPosLogical, cellPosLogical, config.REF_WIDTH, config.REF_HEIGHT);
+                let multiplier = 0;
+                const zones = cell.type === 'gnb' ? config.GNB_COVERAGE_ZONES : config.NTN_COVERAGE_ZONES;
+                for (const zone of zones) {
+                    if (dist <= zone.radius * scale) {
+                        multiplier = zone.multiplier;
+                        break;
+                    }
+                }
+                grid[gx][gy] = multiplier;
+            }
+        }
+        return grid;
+    },
+    getUeSignalInfo(pos, cell_entity, simState) { 
+        const scale = cell_entity.type === 'ntn' ? simState.ntnSize : simState.gnbSize;
+        let baseMultiplier = 0;
+
+        if (cell_entity.type === 'gnb') {
+            if (cell_entity.coverageGrid) {
+                const gridX = Math.floor(pos.x / simulationCoreConfig.COVERAGE_GRID_RESOLUTION);
+                const gridY = Math.floor(pos.y / simulationCoreConfig.COVERAGE_GRID_RESOLUTION);
+                if (cell_entity.coverageGrid[gridX] && cell_entity.coverageGrid[gridX][gridY] !== undefined) {
+                    baseMultiplier = cell_entity.coverageGrid[gridX][gridY];
+                }
+            }
+        } else if (cell_entity.type === 'ntn') {
+            const dist = simulationGeometryUtils.toroidalDist(pos, cell_entity.pos, simulationCoreConfig.REF_WIDTH, simulationCoreConfig.REF_HEIGHT);
+            for (const zone of simulationCoreConfig.NTN_COVERAGE_ZONES) {
+                if (dist <= zone.radius * scale) {
+                    baseMultiplier = zone.multiplier;
+                    break;
+                }
+            }
+        }
+
+        if (baseMultiplier === 0) return { multiplier: 0, isUsable: false };
+        const obstructions = simulationGeometryUtils.countBlockedBlocks(pos, cell_entity.pos, simState.blocks, simulationCoreConfig.REF_WIDTH, simulationCoreConfig.REF_HEIGHT);
+        const finalMultiplier = Math.max(0, baseMultiplier * (1.0 - (obstructions * 0.4)));
+        return { multiplier: finalMultiplier, isUsable: finalMultiplier > 0.05 };
+    }
+};
+
+function addLogMessageToDOM(logArray, cat, from, to, msg, currentTime) {
+    logArray.unshift({ t: (currentTime / 1000).toFixed(1), cat, from, to, msg });
+    if (logArray.length > simulationCoreConfig.LOG_MAX_SIZE) {
+        logArray.pop();
+    }
+    const logEl = document.getElementById('msg-log');
+    if (logEl) {
+        logEl.innerHTML = logArray.map(m => `<div class="msg msg-${m.cat}">[${m.t}s] ${m.from}→${m.to}: ${m.msg}</div>`).join('');
+    }
+}
+
+function initializeAllCanvases() {
+    const canvases = {
+        cv: null, ctx: null,
+        gnbpcv: null, gnbpctx: null,
+        uepcv: null, uepctx: null
+    };
+
+    const mapCanvas = document.getElementById('map');
+    if (!mapCanvas) {
+        console.error("Critical error: Canvas element with ID 'map' not found.");
+        window.displayCriticalError("Error: Main simulation canvas 'map' not found.");
+        return canvases; 
+    }
+    canvases.cv = mapCanvas;
+    canvases.ctx = canvases.cv.getContext('2d');
+    if (!canvases.ctx) {
+        console.error("Critical error: Failed to get 2D context for 'map' canvas.");
+        window.displayCriticalError("Error: Failed to get 2D context for 'map' canvas.");
+        return canvases;
+    }
+
+    const gnbPlotCanvas = document.getElementById('gnb-plot');
+    if (gnbPlotCanvas) {
+        canvases.gnbpcv = gnbPlotCanvas;
+        canvases.gnbpctx = canvases.gnbpcv.getContext('2d');
+        if (!canvases.gnbpctx) {
+            console.warn("Warning: Failed to get 2D context for 'gnb-plot'. Plotting unavailable.");
+            canvases.gnbpcv = null;
+        }
+    } else {
+        console.warn("Warning: Canvas 'gnb-plot' not found. Plotting unavailable.");
+    }
+
+    const uePlotCanvas = document.getElementById('ue-plot');
+    if (uePlotCanvas) {
+        canvases.uepcv = uePlotCanvas;
+        canvases.uepctx = canvases.uepcv.getContext('2d');
+        if (!canvases.uepctx) {
+            console.warn("Warning: Failed to get 2D context for 'ue-plot'. Plotting unavailable.");
+            canvases.uepcv = null;
+        }
+    } else {
+        console.warn("Warning: Canvas 'ue-plot' not found. Plotting unavailable.");
+    }
+    return canvases;
+}
+
+function updateDashboardStats(simState) {
+    document.getElementById('ue-cnt').textContent = simState.ues.size.toString();
+    document.getElementById('bs-cnt').textContent = (simState.bs.size + simState.sats.filter(s => s.vis()).length).toString();
+    document.getElementById('rrc-cnt').textContent = Array.from(simState.ues.values()).filter(u => u.sm.rrc === 'CONNECTED').length.toString();
+    document.getElementById('msg-cnt').textContent = simState.msgs.length.toString();
+    
+    // Combined UE State & Procedures table
+    let outageHtml = '<table class="metrics-table"><thead><tr><th>UE</th><th>Conn</th><th>SIGNALLING</th><th>Search</th><th>PROC</th></tr></thead><tbody>';
+    const ueArrForStats = Array.from(simState.ues.values());
+    ueArrForStats.forEach(ue => { 
+        const p = ue.cellsPassed || 1; 
+        const conn = ((ue.cellsConnected / p) * 100).toFixed(0); 
+        const sig = ((ue.cellsSignalling / p) * 100).toFixed(0); 
+        const srch = ((ue.cellsSearching / p) * 100).toFixed(0); 
+        const procsStr = Array.from(ue.sm.procs).join(', ') || '-';
+        outageHtml += `<tr><td>UE${ue.id}</td><td>${conn}%</td><td>${sig}%</td><td>${srch}%</td><td>${procsStr}</td></tr>`; 
+    });
+    outageHtml += '</tbody></table>';
+    document.getElementById('grid-stats-log').innerHTML = outageHtml;
+}
+
+
+function ueMoveFn(ue, dt, streets) { 
+    ue.pos.x += ue.dir.x * ue.speed * dt;
+    ue.pos.y += ue.dir.y * ue.speed * dt;
+
+    if (ue.pos.x < 0) ue.pos.x += simulationCoreConfig.REF_WIDTH;
+    if (ue.pos.x >= simulationCoreConfig.REF_WIDTH) ue.pos.x -= simulationCoreConfig.REF_WIDTH;
+    if (ue.pos.y < 0) ue.pos.y += simulationCoreConfig.REF_HEIGHT;
+    if (ue.pos.y >= simulationCoreConfig.REF_HEIGHT) ue.pos.y -= simulationCoreConfig.REF_HEIGHT;
+
+    const atIntersection = streets.some(s =>
+        Math.abs(ue.pos.x - s.x) < simulationCoreConfig.STREET_WIDTH / 2 &&
+        Math.abs(ue.pos.y - s.y) < simulationCoreConfig.STREET_WIDTH / 2
+    );
+
+    // Current simple turning logic based on UE_TURN_PROBABILITY_AT_INTERSECTION
+    if (atIntersection && Math.random() < simulationCoreConfig.UE_TURN_PROBABILITY_AT_INTERSECTION) {
+        const nearest = streets.reduce((p, s) =>
+            (Math.abs(ue.pos.x - s.x) + Math.abs(ue.pos.y - s.y)) < (Math.abs(ue.pos.x - p.x) + Math.abs(ue.pos.y - p.y)) ? s : p,
+            ue.pos);
+        ue.pos.x = nearest.x;
+        ue.pos.y = nearest.y;
+
+        const dirs = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+        const newDirs = dirs.filter(d => !(d.x === -ue.dir.x && d.y === -ue.dir.y) || dirs.length === 1);
+        if (newDirs.length > 0) {
+            ue.dir = newDirs[Math.floor(Math.random() * newDirs.length)];
+        }
+    }
+    // If you re-implement dynamic turning probability:
+    // This is where you would check Math.random() < ue.currentTurnProbability
+    // And manage ue.currentTurnProbability based on simulationCoreConfig parameters
+    // (BASE_TURN_PROBABILITY_ON_RESET, UE_TURN_PROBABILITY_INCREMENT_STEP, MAX_ACCUMULATED_TURN_PROBABILITY)
+    // and calculate left/right turns.
+}
+
+
+function satelliteIsVisibleFn(sat, config) { 
+    return sat.pos.x > 0 && sat.pos.x < config.REF_WIDTH && sat.pos.y > 0 && sat.pos.y < config.REF_HEIGHT;
+}
+
+
+window.sim = {
+    bs: new Map(),
+    ues: new Map(),
+    blocks: [],
+    streets: [],
+    sats: [],
+    groundStations: new Map(),
+    msgs: [],
+    log: [],
+    running: false, time: 0, speed: 3,
+    cv: null, ctx: null,
+    gnbpcv: null, gnbpctx: null,
+    uepcv: null, uepctx: null,
+    cellTput: new Map(),
+    lastScanTime: 0, noServiceGrid: [],
+    gnbSize: 0.5, ntnSize: 0.5, scanInterval: 2000,
+    scaleX: 1, scaleY: 1,
+
+    recalculateOverlays() {
+        this.bs.forEach(gnb => {
+            gnb.coverageGrid = simulationSignalUtils.generateCoverageGrid(gnb, this.gnbSize, simulationCoreConfig, simulationGeometryUtils.toroidalDist);
+        });
+        
+        const grid = [];
+        const gridWidth = Math.ceil(simulationCoreConfig.REF_WIDTH / simulationCoreConfig.COVERAGE_GRID_RESOLUTION);
+        const gridHeight = Math.ceil(simulationCoreConfig.REF_HEIGHT / simulationCoreConfig.COVERAGE_GRID_RESOLUTION);
+        for (let gx = 0; gx < gridWidth; gx++) {
+            grid[gx] = [];
+            for (let gy = 0; gy < gridHeight; gy++) {
+                const mapPosLogical = { x: gx * simulationCoreConfig.COVERAGE_GRID_RESOLUTION + simulationCoreConfig.COVERAGE_GRID_RESOLUTION/2, y: gy * simulationCoreConfig.COVERAGE_GRID_RESOLUTION + simulationCoreConfig.COVERAGE_GRID_RESOLUTION/2 };
+                const bestCell = this.findBest(mapPosLogical, true);
+                grid[gx][gy] = bestCell ? 0 : 1;
+            }
+        }
+        this.noServiceGrid = grid;
+    },
+
+    init() {
+        console.log("sim.init() called.");
+        const canvasElements = initializeAllCanvases();
+        this.cv = canvasElements.cv;
+        this.ctx = canvasElements.ctx;
+        this.gnbpcv = canvasElements.gnbpcv;
+        this.gnbpctx = canvasElements.gnbpctx;
+        this.uepcv = canvasElements.uepcv;
+        this.uepctx = canvasElements.uepctx;
+
+        if (!this.cv || !this.ctx) {
+            console.error("sim.init(): Main canvas or context failed to initialize. Aborting further init.");
+            return;
+        }
+        console.log("sim.init(): Canvases initialized.");
+        
+        this.cv.width = this.cv.offsetWidth;
+        this.cv.height = this.cv.offsetHeight;
+        this.scaleX = this.cv.width / simulationCoreConfig.REF_WIDTH;
+        this.scaleY = this.cv.height / simulationCoreConfig.REF_HEIGHT;
+        console.log(`sim.init(): Main canvas dimensions set: ${this.cv.width}x${this.cv.height}. ScaleX: ${this.scaleX}, ScaleY: ${this.scaleY}`);
+
+        if (this.gnbpcv && this.gnbpctx) {
+            this.gnbpcv.width = this.gnbpcv.offsetWidth || parseInt(this.gnbpcv.getAttribute('width') || '250');
+            this.gnbpcv.height = this.gnbpcv.offsetHeight || parseInt(this.gnbpcv.getAttribute('height') || '150');
+        }
+        if (this.uepcv && this.uepctx) {
+            this.uepcv.width = this.uepcv.offsetWidth || parseInt(this.uepcv.getAttribute('width') || '300'); 
+            this.uepcv.height = this.uepcv.offsetHeight || parseInt(this.uepcv.getAttribute('height') || '200'); 
+        }
+
+        this.blocks = [];
+        const numLogicalCols = simulationCoreConfig.REF_WIDTH / simulationCoreConfig.REF_GRID_BLOCK_SIZE;
+        const numLogicalRows = simulationCoreConfig.REF_HEIGHT / simulationCoreConfig.REF_GRID_BLOCK_SIZE;
+
+        for(let r = 0; r < numLogicalRows; r++) {
+            for(let c = 0; c < numLogicalCols; c++) {
+                const x = c * simulationCoreConfig.REF_GRID_BLOCK_SIZE + simulationCoreConfig.STREET_WIDTH / 2;
+                const y = r * simulationCoreConfig.REF_GRID_BLOCK_SIZE + simulationCoreConfig.STREET_WIDTH / 2;
+                const w = simulationCoreConfig.REF_GRID_BLOCK_SIZE - simulationCoreConfig.STREET_WIDTH;
+                const h = simulationCoreConfig.REF_GRID_BLOCK_SIZE - simulationCoreConfig.STREET_WIDTH;
+                this.blocks.push({x, y, w, h});
+            }
+        }
+        this.streets = [];
+        for(let r = 0; r <= numLogicalRows; r++) {
+            for(let c = 0; c <= numLogicalCols; c++) { this.streets.push({ x: c * simulationCoreConfig.REF_GRID_BLOCK_SIZE, y: r * simulationCoreConfig.REF_GRID_BLOCK_SIZE }); }
+        }
+
+        const gnbPower = 43;
+        this.bs.set(1, {id:1, pos:{x:200,y:200}, type:'gnb', pwr:gnbPower, sm:{ues:new Map()}, coverageGrid: []});
+        this.bs.set(2, {id:2, pos:{x:700,y:200}, type:'gnb', pwr:gnbPower, sm:{ues:new Map()}, coverageGrid: []});
+        this.bs.set(3, {id:3, pos:{x:450,y:450}, type:'gnb', pwr:gnbPower, sm:{ues:new Map()}, coverageGrid: []});
+        this.groundStations.set(1, {id:1, pos:{x:50,y:50}, type:'gs'});
+        this.groundStations.set(2, {id:2, pos:{x:simulationCoreConfig.REF_WIDTH - 50, y:simulationCoreConfig.REF_HEIGHT - 50}, type:'gs'});
+        
+        const satVel = 10; const numSats = 4;
+        for(let i = 0; i < numSats; i++) {
+            this.sats.push({
+                id: 100 + i, pos: {x: 0, y: 0}, vel: satVel, pwr: 40, type: 'ntn',
+                sm: {ues: new Map()}, phase: i * (360 / numSats), feederLinks:[], maxFeederLinks: 2,
+                vis: function() { return satelliteIsVisibleFn(this, simulationCoreConfig); },
+                // currentTurnProbability: simulationCoreConfig.BASE_TURN_PROBABILITY_ON_RESET // If adding to satellites, or just for UEs
+            });
+        }
+
+        this.recalculateOverlays();
+        for(let i=0; i<5; i++) this.addUE(this.ues.size + 1);
+        
+        this.render(); 
+        
+        document.getElementById('toggle-sim-btn')?.addEventListener('click', () => this.toggle());
+        document.getElementById('add-ue-btn')?.addEventListener('click', () => this.addUE(this.ues.size + 1));
+        document.getElementById('reset-sim-btn')?.addEventListener('click', () => this.reset());
+        document.getElementById('speed-slider')?.addEventListener('change', (e) => { this.speed = parseFloat(e.target.value); });
+        document.getElementById('scan-interval-slider')?.addEventListener('change', (e) => { this.scanInterval = parseFloat(e.target.value); });
+        document.getElementById('gnb-size-slider')?.addEventListener('change', (e) => { this.setGnbSize(parseFloat(e.target.value)); });
+        document.getElementById('ntn-size-slider')?.addEventListener('change', (e) => { this.setNtnSize(parseFloat(e.target.value)); });
+        // The slider ID 'turn-prob-slider' still exists, ensure its event listener updates the correct config.
+        // If it was for UE_TURN_PROBABILITY_INCREMENT_STEP:
+        // document.getElementById('turn-prob-slider')?.addEventListener('change', (e) => { simulationCoreConfig.UE_TURN_PROBABILITY_INCREMENT_STEP = parseFloat(e.target.value); });
+        // If it's for the simple UE_TURN_PROBABILITY_AT_INTERSECTION:
+        document.getElementById('turn-prob-slider')?.addEventListener('change', (e) => { simulationCoreConfig.UE_TURN_PROBABILITY_AT_INTERSECTION = parseFloat(e.target.value); });
+        console.log("sim.init() completed.");
+    },
+
+    setGnbSize(value) { this.gnbSize = value; this.recalculateOverlays(); },
+    setNtnSize(value) { this.ntnSize = value; this.recalculateOverlays(); }, 
+    
+    addUE(id, initialPos) {
+        const ueId = id || (this.ues.size + 1);
+        const streetPos = initialPos || this.streets[Math.floor(Math.random() * this.streets.length)];
+        const dirs = [{x:1,y:0}, {x:-1,y:0}, {x:0,y:1}, {x:0,y:-1}];
+        const dir = dirs[Math.floor(Math.random() * 4)];
+        const ue = {
+            id: ueId, pos: {...streetPos}, dir, speed: 7 + Math.random() * 7, 
+            cell: null, cell_obj: null,
+            sm: {rrc:'IDLE', nas:'DEREG', procs:new Set()},
+            tput: [], curTput: 0,
+            qualityHistory: [], currentMultiplier: 0,
+            signalQualities: new Map(),
+            cellsPassed: 0, cellsConnected: 0, cellsSignalling: 0, cellsSearching: 0, lastGridPos: null,
+            // currentTurnProbability: simulationCoreConfig.BASE_TURN_PROBABILITY_ON_RESET, // For dynamic turning
+            move: function(dt) { ueMoveFn(this, dt, window.sim.streets); } 
+        };
+        this.ues.set(ueId, ue); setTimeout(()=>this.rach(ue), 1000);
+    },
+
+    findBest(ue_or_pos, isLightweightCheck = false) {
+        let bestCell = null;
+        let bestQuality = -1;
+        const allCells = [...this.bs.values(), ...this.sats];
+        
+        const pos = 'pos' in ue_or_pos ? ue_or_pos.pos : ue_or_pos;
+        const currentUE = 'signalQualities' in ue_or_pos ? ue_or_pos : null;
+
+        for(const cell of allCells) {
+            if (cell.type === 'ntn' && !cell.vis()) continue;
+            
+            const signalInfoState = {
+                ntnSize: this.ntnSize,
+                gnbSize: this.gnbSize,
+                blocks: this.blocks
+            };
+            let { multiplier } = (isLightweightCheck || !currentUE)
+                ? simulationSignalUtils.getUeSignalInfo(pos, cell, signalInfoState)
+                : (currentUE.signalQualities.get(cell.id) || {multiplier: 0, isUsable: false});
+
+            if (cell.type === 'gnb') multiplier += simulationCoreConfig.GNB_PREFERENCE_DB / 100;
+            if (multiplier > bestQuality) { bestQuality = multiplier; bestCell = cell; }
+        }
+        return bestCell;
+    },
+
+    send(type,from,to,data={}) {
+        this.msgs.push({type,from,to,data,ts:Date.now(),dlv:Date.now()+(type.startsWith('RRC')?15:25)});
+        addLogMessageToDOM(this.log, type.startsWith('RRC')?'rrc':type.includes('HO')?'ho':'nas',from,to,type, this.time);
+    },
+    
+    rach(ue) { if(ue.sm.rrc !== 'IDLE' || ue.sm.procs.has('RACH')) return; const bs = this.findBest(ue.pos, true); if(!bs) return; ue.sm.procs.add('RACH'); this.send('RACH_PREAMBLE',`UE${ue.id}`,bs.type==='ntn'?`SAT${bs.id}`:`gNB${bs.id}`); },
+    
+    process() { const now = Date.now(); for(let i=this.msgs.length-1; i>=0; i--) { const m = this.msgs[i]; if(now >= m.dlv) { this.msgs.splice(i,1); const ueIdMatch = m.to.match(/UE(\d+)/) || m.from.match(/UE(\d+)/); const ue = ueIdMatch ? this.ues.get(parseInt(ueIdMatch[1])) : null; const bsIdMatch = m.to.match(/SAT(\d+)|gNB(\d+)/) || m.from.match(/SAT(\d+)|gNB(\d+)/); let bs = null; if(bsIdMatch) { if(bsIdMatch[1]) bs = this.sats.find(s=>s.id === parseInt(bsIdMatch[1])) || null; else if(bsIdMatch[2]) bs = this.bs.get(parseInt(bsIdMatch[2])) || null; } if(ue && bs) { switch(m.type) { case 'RACH_PREAMBLE': this.send('RACH_RESPONSE',m.to,m.from); break; case 'RACH_RESPONSE': this.send('RRC_SETUP_REQUEST',m.to,m.from); break; case 'RRC_SETUP_REQUEST': this.send('RRC_SETUP',m.to,m.from); break; case 'RRC_SETUP': ue.sm.rrc = 'CONNECTED'; ue.cell = bs.id; ue.cell_obj = bs; bs.sm.ues.set(ue.id,{}); ue.sm.procs.delete('RACH'); this.send('RRC_SETUP_COMPLETE',m.to,m.from); if (ue.sm.nas === 'DEREG') { setTimeout(()=>this.send('NAS_ATTACH_REQUEST',`UE${ue.id}`,(bs.type === 'ntn' ? `SAT${bs.id}` : `gNB${bs.id}`)),50); } break; case 'NAS_ATTACH_REQUEST': this.send('NAS_ATTACH_ACCEPT',m.to,m.from); break; case 'NAS_ATTACH_ACCEPT': ue.sm.nas = 'REG'; break; case 'RRC_RECONFIGURATION': if(m.data.target) { setTimeout(()=>this.completeHO(ue,m.data.target),50); } break; } } } } },
+    
+    handleRLF(ue, cell) { addLogMessageToDOM(this.log, 'rrc', `UE${ue.id}`, `${cell.type.toUpperCase()}${cell.id}`, 'RLF', this.time); ue.cell = null; ue.cell_obj = null; ue.sm.rrc = 'IDLE'; cell.sm.ues.delete(ue.id); },
+    checkRLF() { this.ues.forEach(ue => { if (ue.sm.rrc !== 'CONNECTED' || !ue.cell_obj) return; const cellQuality = ue.signalQualities.get(ue.cell_obj.id); if (!cellQuality || !cellQuality.isUsable) { this.handleRLF(ue, ue.cell_obj); } }); },
+    checkHO() { this.ues.forEach(ue => { if(ue.sm.rrc !== 'CONNECTED' || !ue.cell || ue.sm.procs.has('HO') || !ue.cell_obj) return; let cur = ue.cell_obj; if(!cur || (cur.type === 'ntn' && !cur.vis())) return; const best = this.findBest(ue); if(!best || best.id === ue.cell) return; const curQuality = ue.signalQualities.get(cur.id)?.multiplier || 0; const bestQuality = ue.signalQualities.get(best.id)?.multiplier || 0; if(bestQuality > curQuality + 0.2) { ue.sm.procs.add('HO'); this.send('RRC_RECONFIGURATION',cur.type==='ntn'?`SAT${cur.id}`:`gNB${cur.id}`,`UE${ue.id}`,{target:best.id}); } }); },
+    completeHO(ue, targetId) { let src = ue.cell_obj; let tgt = this.sats.find(s => s.id === targetId) || this.bs.get(targetId) || null; if(!src || !tgt) { ue.sm.procs.delete('HO'); return; } src.sm.ues.delete(ue.id); tgt.sm.ues.set(ue.id,{}); ue.cell = targetId; ue.cell_obj = tgt; ue.sm.procs.delete('HO'); addLogMessageToDOM(this.log,'ho',`UE${ue.id}`,'',`HO: ${src.type==='ntn'?'SAT':'gNB'}${src.id}→${tgt.type==='ntn'?'SAT':'gNB'}${tgt.id}`, this.time); },
+    updateSatelliteFeeders() { this.sats.forEach(sat => { if (!sat.vis()) { sat.feederLinks = []; return; } const sortedGS = [...this.groundStations.values()].map(gs => ({ gs, dist: simulationGeometryUtils.toroidalDist(sat.pos, gs.pos, simulationCoreConfig.REF_WIDTH, simulationCoreConfig.REF_HEIGHT) })).sort((a, b) => a.dist - b.dist); sat.feederLinks = sortedGS.slice(0, sat.maxFeederLinks).map(item => item.gs); }); },
+    scanForNetworks() { if(this.time - this.lastScanTime > this.scanInterval) { this.ues.forEach(ue => { if (ue.sm.rrc === 'IDLE') this.rach(ue); }); this.lastScanTime = this.time; } },
+    updateUeGridMetrics() { this.ues.forEach(ue => { const gx = Math.floor(ue.pos.x / simulationCoreConfig.REF_GRID_BLOCK_SIZE); const gy = Math.floor(ue.pos.y / simulationCoreConfig.REF_GRID_BLOCK_SIZE); if (!ue.lastGridPos || ue.lastGridPos.x !== gx || ue.lastGridPos.y !== gy) { ue.cellsPassed++; if (ue.sm.rrc === 'CONNECTED') { if (ue.sm.procs.size > 0) ue.cellsSignalling++; else ue.cellsConnected++; } else { ue.cellsSearching++; } ue.lastGridPos = {x: gx, y: gy}; } }); },
+    
+    updateTputAndQuality() {
+        const now = Date.now();
+        const signalInfoState = { ntnSize: this.ntnSize, gnbSize: this.gnbSize, blocks: this.blocks };
+
+        this.ues.forEach(ue => {
+            ue.curTput = 0;
+            const foundBs = ue.cell ? this.bs.get(ue.cell) : undefined;
+            const foundSat = ue.cell ? this.sats.find(s => s.id === ue.cell) : undefined;
+            ue.cell_obj = foundBs || foundSat || null;
+            ue.signalQualities.clear();
+            [...this.bs.values(), ...this.sats].forEach(cell_entity => {
+                if (cell_entity.type === 'ntn' && !cell_entity.vis()) return;
+                ue.signalQualities.set(cell_entity.id, simulationSignalUtils.getUeSignalInfo(ue.pos, cell_entity, signalInfoState));
+            });
+            ue.currentMultiplier = ue.cell_obj ? (ue.signalQualities.get(ue.cell_obj.id)?.multiplier || 0) : 0;
+        });
+
+        const scheduleCells = (cellCollection) => {
+            (Array.isArray(cellCollection) ? cellCollection : [...cellCollection.values()]).forEach(bs_or_sat => {
+                if (!this.cellTput.has(bs_or_sat.id)) this.cellTput.set(bs_or_sat.id, { history: [] });
+                let capacity;
+                if (bs_or_sat.type === 'gnb') {
+                    capacity = simulationCoreConfig.GNB_CAPACITY;
+                } else { 
+                    if (!bs_or_sat.vis()) {
+                        this.cellTput.get(bs_or_sat.id).history.push({ t: now, v: 0 });
+                        return;
+                    }
+                    capacity = bs_or_sat.feederLinks.length * simulationCoreConfig.GS_FEEDER_CAPACITY;
+                }
+
+                const connectedUes = Array.from(this.ues.values()).filter(u => u.cell === bs_or_sat.id);
+                if (connectedUes.length === 0) {
+                    this.cellTput.get(bs_or_sat.id).history.push({ t: now, v: 0 });
+                    return;
+                }
+
+                let totalPotentialTput = 0;
+                const uePotentials = connectedUes.map(u => {
+                    const potentialTput = (u.sm.procs.size > 0) ? 0 : capacity * (u.signalQualities.get(bs_or_sat.id)?.multiplier || 0);
+                    totalPotentialTput += potentialTput;
+                    return { ue: u, potentialTput };
+                });
+
+                const scalingFactor = (totalPotentialTput > capacity && capacity > 0) ? (capacity / totalPotentialTput) : 1.0;
+                let totalCellTput = 0;
+                uePotentials.forEach(item => {
+                    const finalTput = item.potentialTput * scalingFactor;
+                    item.ue.curTput = finalTput;
+                    totalCellTput += finalTput;
+                });
+                this.cellTput.get(bs_or_sat.id).history.push({ t: now, v: totalCellTput });
+            });
+        };
+        scheduleCells(this.bs);
+        scheduleCells(this.sats);
+
+        this.ues.forEach(ue => {
+            ue.tput.push({ t: now, v: ue.curTput });
+            ue.qualityHistory.push({ t: now, v: ue.currentMultiplier });
+            ue.tput = ue.tput.filter(s => s.t > now - 60000);
+            ue.qualityHistory = ue.qualityHistory.filter(s => s.t > now - 60000);
+        });
+        this.cellTput.forEach(ct => {
+            ct.history = ct.history.filter(s => s.t > now - 60000);
+        });
+    },
+
+    render() {
+        if (!this.ctx || !this.cv) { console.warn("Main canvas or context missing, cannot render main map."); return; }
+        const ctx = this.ctx;
+        ctx.fillStyle = '#000'; ctx.fillRect(0,0,this.cv.width,this.cv.height);
+        ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = simulationCoreConfig.STREET_WIDTH * Math.min(this.scaleX, this.scaleY);
+        for(let x = 0; x <= simulationCoreConfig.REF_WIDTH; x += simulationCoreConfig.REF_GRID_BLOCK_SIZE) { ctx.beginPath(); ctx.moveTo(x * this.scaleX, 0); ctx.lineTo(x * this.scaleX, this.cv.height); ctx.stroke(); }
+        for(let y = 0; y <= simulationCoreConfig.REF_HEIGHT; y += simulationCoreConfig.REF_GRID_BLOCK_SIZE) { ctx.beginPath(); ctx.moveTo(0, y * this.scaleY); ctx.lineTo(this.cv.width, y * this.scaleY); ctx.stroke(); }
+        this.blocks.forEach(b => { ctx.fillStyle = '#3a3a3a'; ctx.fillRect(b.x * this.scaleX, b.y * this.scaleY, b.w * this.scaleX, b.h * this.scaleY); });
+
+        ctx.globalAlpha = 0.6;
+        if(this.noServiceGrid.length > 0) { const resXScaled = simulationCoreConfig.COVERAGE_GRID_RESOLUTION * this.scaleX; const resYScaled = simulationCoreConfig.COVERAGE_GRID_RESOLUTION * this.scaleY; for(let gx=0; gx<this.noServiceGrid.length; gx++) { for(let gy=0; gy<this.noServiceGrid[gx].length; gy++) { if (this.noServiceGrid[gx][gy] === 1) { ctx.fillStyle = '#404040'; ctx.fillRect(gx * resXScaled, gy * resYScaled, resXScaled, resYScaled); } } } }
+        this.bs.forEach(gnb => {
+            if (!gnb.coverageGrid || gnb.coverageGrid.length === 0) return; const resXScaled = simulationCoreConfig.COVERAGE_GRID_RESOLUTION * this.scaleX; const resYScaled = simulationCoreConfig.COVERAGE_GRID_RESOLUTION * this.scaleY;
+            for(let gx=0; gx<gnb.coverageGrid.length; gx++) { for(let gy=0; gy<gnb.coverageGrid[gx].length; gy++) {
+                const m = gnb.coverageGrid[gx][gy]; if (m === 0) continue;
+                if (m >= 0.8 * 0.9) ctx.fillStyle = 'rgba(76, 175, 80, 0.3)'; 
+                else if (m >= 0.8 * 0.4) ctx.fillStyle = 'rgba(255, 235, 59, 0.3)'; 
+                else ctx.fillStyle = 'rgba(244, 67, 54, 0.3)'; 
+                ctx.fillRect(gx * resXScaled, gy * resYScaled, resXScaled, resYScaled);
+            } }
+        });
+        ctx.globalAlpha = 1;
+
+        const drawNtnBorders = (cell, zones, scale) => { ctx.lineWidth = 2; ctx.setLineDash([10, 10]); ctx.globalAlpha = 0.7; zones.forEach(zone => { ctx.strokeStyle = zone.color; ctx.beginPath(); ctx.arc(cell.pos.x * this.scaleX, cell.pos.y * this.scaleY, zone.radius * scale * this.scaleX, 0, Math.PI * 2); ctx.stroke(); }); ctx.setLineDash([]); ctx.lineWidth = 1; ctx.globalAlpha = 1; };
+        this.sats.forEach(sat => { if (sat.vis()) { drawNtnBorders(sat, simulationCoreConfig.NTN_COVERAGE_ZONES, this.ntnSize); } });
+
+        this.groundStations.forEach(gs => { ctx.fillStyle = '#ffa726'; ctx.fillRect(gs.pos.x * this.scaleX - 10 * this.scaleX, gs.pos.y * this.scaleY - 10 * this.scaleY, 20 * this.scaleX, 20 * this.scaleY); ctx.strokeStyle = '#ff6d00'; ctx.lineWidth = 2; ctx.strokeRect(gs.pos.x * this.scaleX - 10 * this.scaleX, gs.pos.y * this.scaleY - 10 * this.scaleY, 20 * this.scaleX, 20 * this.scaleY); ctx.fillStyle = '#fff'; ctx.font = `${Math.max(9, 9*this.scaleX)}px Arial`; ctx.fillText(`GS${gs.id}`, gs.pos.x * this.scaleX + 15 * this.scaleX, gs.pos.y * this.scaleY + 4 * this.scaleY); });
+        this.sats.forEach((sat) => { const v = sat.vis(); sat.feederLinks.forEach(gs => { ctx.strokeStyle = '#ffa726'; ctx.globalAlpha = 0.3; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(sat.pos.x * this.scaleX, sat.pos.y * this.scaleY); ctx.lineTo(gs.pos.x * this.scaleX, gs.pos.y * this.scaleY); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; }); ctx.fillStyle = v ? '#00bcd4' : '#666'; ctx.beginPath(); ctx.arc(sat.pos.x * this.scaleX, sat.pos.y * this.scaleY, 8 * Math.min(this.scaleX, this.scaleY), 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = `${Math.max(9, 9*this.scaleX)}px Arial`; ctx.fillText(`S${sat.id-100}`, sat.pos.x * this.scaleX + 12 * this.scaleX, sat.pos.y * this.scaleY + 4 * this.scaleY); });
+        this.bs.forEach(bs => { ctx.fillStyle = '#ff6b6b'; ctx.fillRect(bs.pos.x * this.scaleX - 8 * this.scaleX, bs.pos.y * this.scaleY - 8 * this.scaleY, 16 * this.scaleX, 16 * this.scaleY); ctx.fillStyle = '#fff'; ctx.font = `${Math.max(9, 9*this.scaleX)}px Arial`; ctx.fillText(`G${bs.id}`, bs.pos.x * this.scaleX + 12 * this.scaleX, bs.pos.y * this.scaleY - 4 * this.scaleY); });
+        this.ues.forEach(ue => { if(ue.cell && ue.cell_obj) { let bs_or_sat = ue.cell_obj; if(bs_or_sat && (bs_or_sat.type !== 'ntn' || bs_or_sat.vis())) { const blocked = simulationGeometryUtils.countBlockedBlocks(ue.pos, bs_or_sat.pos, this.blocks, simulationCoreConfig.REF_WIDTH, simulationCoreConfig.REF_HEIGHT) > 0; ctx.strokeStyle = bs_or_sat.type === 'ntn' ? '#00bcd4' : (blocked ? '#ff6b6b' : '#ffeb3b'); ctx.globalAlpha = 0.6; ctx.setLineDash(blocked ? [4,4] : []); ctx.lineWidth = 1; const paths = simulationGeometryUtils.getWrappedPaths(ue.pos, bs_or_sat.pos, simulationCoreConfig.REF_WIDTH, simulationCoreConfig.REF_HEIGHT); if(paths.length > 0) { const path = paths[0]; ctx.beginPath(); ctx.moveTo(path.x1 * this.scaleX, path.y1 * this.scaleY); ctx.lineTo(path.x2 * this.scaleX, path.y2 * this.scaleY); ctx.stroke(); } ctx.setLineDash([]); ctx.globalAlpha = 1; } } let ueColor = '#757575'; if (ue.sm.rrc === 'CONNECTED') { ueColor = ue.sm.procs.size > 0 ? '#00bcd4' : '#4caf50'; } ctx.fillStyle = ueColor; ctx.beginPath(); ctx.arc(ue.pos.x * this.scaleX, ue.pos.y * this.scaleY, 5 * Math.min(this.scaleX, this.scaleY), 0, Math.PI * 2); ctx.fill(); if(ue.curTput > 0) { ctx.fillStyle='#fff'; ctx.font = `${Math.max(9, 9*this.scaleX)}px Arial`; ctx.fillText(`${ue.curTput.toFixed(1)}`, ue.pos.x * this.scaleX - 5 * this.scaleX, ue.pos.y * this.scaleY - 8 * this.scaleY); } });
+
+        if (this.gnbpctx && this.gnbpcv) {
+            const gnbpctx = this.gnbpctx;
+            gnbpctx.fillStyle = '#0f0f0f'; gnbpctx.fillRect(0,0,this.gnbpcv.width, this.gnbpcv.height);
+            const cellArr = [...this.bs.values(), ...this.sats].filter(c=>this.cellTput.has(c.id) && (c.type !== 'ntn' || c.vis()));
+            if (cellArr.length > 0) { const h = this.gnbpcv.height / cellArr.length; cellArr.forEach((cell, i) => { const y = i * h; const cellTputData = this.cellTput.get(cell.id); if (!cellTputData) return; const plotData = cellTputData.history; gnbpctx.strokeStyle = '#333'; gnbpctx.beginPath(); gnbpctx.moveTo(0,y+h); gnbpctx.lineTo(this.gnbpcv.width,y+h); gnbpctx.stroke(); gnbpctx.fillStyle = cell.type === 'gnb' ? '#ff6b6b' : '#00bcd4'; gnbpctx.font = '10px Arial'; gnbpctx.fillText(`${cell.type.toUpperCase()}${cell.id}`, 5, y+15); if(plotData.length > 1) { gnbpctx.strokeStyle = cell.type === 'gnb' ? '#ff6b6b' : '#00bcd4'; gnbpctx.lineWidth = 1.5; gnbpctx.beginPath(); const now = Date.now(); plotData.forEach((s,j) => { const x = ((s.t - (now-60000)) / 60000) * this.gnbpcv.width; const py = y + h - (s.v/simulationCoreConfig.GNB_CAPACITY) * h * 0.9; if(j===0) gnbpctx.moveTo(x,py); else gnbpctx.lineTo(x,py); }); gnbpctx.stroke(); } }); }
+        }
+
+        if (this.uepctx && this.uepcv) {
+            const uepctx = this.uepctx;
+            const ueArr = Array.from(this.ues.values());
+            if(ueArr.length > 0) {
+                const h = this.uepcv.height / ueArr.length; const now = Date.now();
+                uepctx.clearRect(0, 0, this.uepcv.width, this.uepcv.height);
+                ueArr.forEach((ue,i) => {
+                    const y = i * h; uepctx.fillStyle = '#0f0f0f'; uepctx.fillRect(0, y, this.uepcv.width, h);
+                    if (ue.qualityHistory.length > 1) {
+                        for(let j=1; j<ue.qualityHistory.length; j++) {
+                            const m = ue.qualityHistory[j].v; const x1 = ((ue.qualityHistory[j-1].t - (now-60000)) / 60000) * this.uepcv.width; const x2 = ((ue.qualityHistory[j].t - (now-60000)) / 60000) * this.uepcv.width;
+                            if (m >= 0.9) uepctx.fillStyle = 'rgba(76, 175, 80, 0.2)'; else if (m >= 0.4) uepctx.fillStyle = 'rgba(255, 235, 59, 0.2)'; else if (m > 0) uepctx.fillStyle = 'rgba(244, 67, 54, 0.2)'; else continue;
+                            uepctx.fillRect(x1, y, x2 - x1, h);
+                        }
+                    }
+                    uepctx.strokeStyle = '#333'; uepctx.lineWidth = 1; uepctx.beginPath(); uepctx.moveTo(0,y+h); uepctx.lineTo(this.uepcv.width,y+h); uepctx.stroke();
+                    uepctx.fillStyle = '#aaa'; uepctx.font = '12px Arial'; uepctx.fillText(`UE ${ue.id}`,5,y+Math.min(20, h*0.3));
+                    if(ue.tput.length > 1) { uepctx.strokeStyle = '#4caf50'; uepctx.lineWidth = 2; uepctx.beginPath(); ue.tput.forEach((s,j) => { const x = ((s.t - (now-60000)) / 60000) * this.uepcv.width; const py = y + h - (s.v/simulationCoreConfig.GNB_CAPACITY) * h * 0.9; if(j === 0) uepctx.moveTo(x,py); else uepctx.lineTo(x,py); }); uepctx.stroke(); }
+                });
+            }
+        }
+        updateDashboardStats(this);
+    },
+
+    step() { if(!this.running) return; const simDt = this.speed / 100; this.time += simDt * 1000; this.ues.forEach(ue => ue.move(simDt)); this.sats.forEach(sat => { sat.phase += sat.vel * simDt * 0.05; if(sat.phase > 360) sat.phase -= 360; const rad = sat.phase * Math.PI / 180; sat.pos.x = simulationCoreConfig.REF_WIDTH/2 + (simulationCoreConfig.REF_WIDTH/2-50) * Math.sin(rad); sat.pos.y = simulationCoreConfig.REF_HEIGHT/2 + (simulationCoreConfig.REF_HEIGHT/2-50) * Math.cos(rad * 2); }); this.updateSatelliteFeeders(); this.process(); this.updateTputAndQuality(); this.checkRLF(); this.checkHO(); this.scanForNetworks(); this.updateUeGridMetrics(); this.render(); requestAnimationFrame(()=>this.step()); },
+    
+    toggle() { this.running = !this.running; if(this.running) this.step();
+        const btn = document.getElementById('toggle-sim-btn');
+        if (btn) btn.textContent = this.running ? '❚❚ Pause' : '▶ Start';
+    },
+    
+    forceHO() { const ues = Array.from(this.ues.values()).filter(u => u.sm.rrc === 'CONNECTED' && !u.sm.procs.has('HO')); if (ues.length > 0) { const ue = ues[0]; const others = [...this.bs.values(), ...this.sats.filter(s => s.vis())].filter(b => b.id !== ue.cell); if(others.length>0 && ue.cell_obj){ ue.sm.procs.add('HO'); let cur=ue.cell_obj; this.send('RRC_RECONFIGURATION',cur.type==='ntn'?`SAT${cur.id}`:`gNB${cur.id}`,`UE${ue.id}`,{target:others[Math.floor(Math.random()*others.length)].id}); }}},
+    
+    reset() {
+        this.running = false;
+        const toggleBtn = document.getElementById('toggle-sim-btn');
+        if (toggleBtn) toggleBtn.textContent = '▶ Start';
+
+        this.ues.clear(); this.msgs = []; this.log = []; this.time = 0; this.lastScanTime=0; this.cellTput.clear();
+        this.bs.forEach(b => b.sm.ues.clear());
+        this.sats.forEach((s, index)=>{s.sm.ues.clear(); s.phase = index * (360/this.sats.length); s.feederLinks=[];});
+
+        document.getElementById('gnb-size-slider').value = '0.5'; this.setGnbSize(0.5);
+        document.getElementById('ntn-size-slider').value = '0.5'; this.setNtnSize(0.5);
+        document.getElementById('scan-interval-slider').value = '2000'; this.scanInterval=2000;
+        document.getElementById('speed-slider').value = '3'; this.speed=3;
+        
+        // Ensure the correct config is updated based on which turning logic is active
+        // If dynamic turning logic was active (BASE_TURN_PROBABILITY_ON_RESET, etc.):
+        // document.getElementById('turn-prob-slider').value = '0.05'; // Assuming this was the default for UE_TURN_PROBABILITY_INCREMENT_STEP
+        // simulationCoreConfig.UE_TURN_PROBABILITY_INCREMENT_STEP = 0.05;
+        // this.ues.forEach(ue => { ue.currentTurnProbability = simulationCoreConfig.BASE_TURN_PROBABILITY_ON_RESET; });
+        
+        // For the simpler UE_TURN_PROBABILITY_AT_INTERSECTION:
+        document.getElementById('turn-prob-slider').value = '0.3'; 
+        simulationCoreConfig.UE_TURN_PROBABILITY_AT_INTERSECTION = 0.3;
+
+
+        addLogMessageToDOM(this.log, 'sys','SIM','','Reset complete', this.time);
+        for(let i=0; i<5; i++) this.addUE(this.ues.size + 1);
+        this.recalculateOverlays();
+        this.render();
+    }
+};
+
+let criticalErrorDisplayed = false; 
+
+window.displayCriticalError = function(message) {
+    let errDiv = document.getElementById('critical-error-display');
+    if (!errDiv) {
+        errDiv = document.createElement('div');
+        errDiv.id = 'critical-error-display';
+        errDiv.style.color = "red"; errDiv.style.backgroundColor = "black";
+        errDiv.style.padding = "20px"; errDiv.style.position = "fixed";
+        errDiv.style.top = "0"; errDiv.style.left = "0";
+        errDiv.style.width = "100%"; errDiv.style.zIndex = "1000";
+        errDiv.setAttribute('aria-live', 'assertive');
+        if (document.body) { document.body.prepend(errDiv); } 
+        else { setTimeout(() => { if (document.body && !document.getElementById('critical-error-display')) { document.body.prepend(errDiv); errDiv.textContent = message; } else if (document.getElementById('critical-error-display')) { document.getElementById('critical-error-display').textContent = message; } }, 100); }
+    }
+    if (errDiv) { errDiv.textContent = message; }
+    criticalErrorDisplayed = true;
+};
+
+console.log("Inlined simulation script defined. Initialization is triggered by the subsequent script.");
+</script>
+
+<script>
+  window.addEventListener('load', () => {
+    console.log("HTML Bootstrap Script: window.load event fired.");
+    const mapElement = document.getElementById('map');
+    if (mapElement) {
+      console.log("HTML Bootstrap Script: 'map' canvas FOUND. Calling sim.init().");
+      if (window.sim && typeof window.sim.init === 'function') {
+        window.sim.init();
+      } else {
+        console.error("HTML Bootstrap Script: sim object or sim.init function not available globally.");
+        if (typeof window.displayCriticalError === 'function') {
+            window.displayCriticalError("CRITICAL FAULT: Simulation core (sim.init) is not available. Scripting error in inlined JavaScript.");
+        } else {
+            alert("CRITICAL FAULT: Simulation core (sim.init) AND error display function are not available.");
+        }
+      }
+    } else {
+      console.error("HTML Bootstrap Script: 'map' canvas NOT FOUND even after window.load.");
+      if (typeof window.displayCriticalError === 'function') {
+        window.displayCriticalError("CRITICAL FAULT: Main canvas 'map' not found in document after page load.");
+      } else {
+        alert("CRITICAL FAULT: Main canvas 'map' not found AND error display function is not available.");
+      }
+    }
+  });
+</script>
+</body>
+</html>

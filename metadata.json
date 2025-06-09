@@ -1,0 +1,6 @@
+{
+  "description": "System simulator to illustrate operation of 3GPP system",
+  "prompt": "HAve this code as startingpoint. Need to optimize the app. First analyze code design to extract requirement and design. Then find out ways to refactor. ",
+  "requestFramePermissions": [],
+  "name": "3GPP System Sim"
+}
