@@ -1,0 +1,9 @@
+name: Coordinator
+description: Orchestrates specialist agents for analysis, review, and evaluation.
+specialists:
+  - roleKey: domain_specialist
+    required: true
+  - roleKey: reviewer
+    required: true
+  - roleKey: evaluator
+    required: true

@@ -9,10 +9,11 @@
     "preview": "vite preview",
     "lint": "echo 'TODO: add ESLint' && exit 0",
     "test": "echo 'TODO: add Vitest' && exit 0",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "agents:demo": "node agentic/demo.js"
   },
   "dependencies": {
-
+    "yaml": "^2.5.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
