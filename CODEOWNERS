@@ -1,0 +1,19 @@
+# Default owners
+* @core-team
+
+# Docs
+/ARCHITECTURE.md @arch-owner
+/CONTRIBUTING.md @arch-owner
+
+# Simulator runtime
+/3gpp_simulator.html @runtime-owner
+
+# TypeScript models
+/types.ts @ts-owner
+/ue.ts @ts-owner
+/gnb.ts @ts-owner
+/satellite.ts @ts-owner
+/base_station.ts @ts-owner
+/groundstation.ts @ts-owner
+/map_elements.ts @ts-owner
+
