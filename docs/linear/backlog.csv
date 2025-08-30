@@ -1,0 +1,15 @@
+Title,Description,Priority,Label,Project,Parent,Status
+Epic: Phase 1 Modularization,"Extract inlined JS into TS modules under src/, parity maintained",High,"phase:1-modularization",3GPP Simulator,,Backlog
+Epic: Phase 2 Type Safety,"Enable strict TS, ESLint, Prettier, fix types",High,"phase:2-type-safety",3GPP Simulator,,Backlog
+Epic: Phase 3 Testing,"Add Vitest and integration tests with coverage gates",High,"phase:3-testing",3GPP Simulator,,Backlog
+Epic: Phase 4 CI/CD,"Add GitHub Actions for build/lint/test/coverage/preview",Medium,"phase:4-ci",3GPP Simulator,,Backlog
+Epic: Phase 5 Features,"Scenario configs, improved models, richer FSM",Medium,"phase:5-features",3GPP Simulator,,Backlog
+Task: Create src skeleton,"Create core and ui modules, move logic from HTML",High,"phase:1-modularization;area:runtime;role:arch;role:runtime",3GPP Simulator,Epic: Phase 1 Modularization,Backlog
+Task: Wire Vite entry,"Add index.html and main.ts to bootstrap createSim()",High,"phase:1-modularization;area:ui;role:uiux",3GPP Simulator,Epic: Phase 1 Modularization,Backlog
+Task: Add ESLint/Prettier,"Configs, scripts, initial lint pass",High,"phase:2-type-safety;area:tooling;role:qa",3GPP Simulator,Epic: Phase 2 Type Safety,Backlog
+Task: Enable strict TS,"noImplicitAny, strictNullChecks, fix types",High,"phase:2-type-safety;area:runtime;role:arch",3GPP Simulator,Epic: Phase 2 Type Safety,Backlog
+Task: Add Vitest,"configure vitest + jsdom/happy-dom",High,"phase:3-testing;area:tooling;role:qa",3GPP Simulator,Epic: Phase 3 Testing,Backlog
+Task: Unit tests for geometry/signal,"cover toroidalDist, coverage grids",High,"phase:3-testing;area:geometry;area:signal;role:qa",3GPP Simulator,Epic: Phase 3 Testing,Backlog
+Task: FSM tests,"RACH→RRC Setup→NAS Attach, HO policies",High,"phase:3-testing;area:fsm;role:qa",3GPP Simulator,Epic: Phase 3 Testing,Backlog
+Task: GitHub Actions,"node matrix, cache, coverage artifact",Medium,"phase:4-ci;area:tooling;role:qa",3GPP Simulator,Epic: Phase 4 CI/CD,Backlog
+Task: Scenario config loader,"load topology from JSON",Medium,"phase:5-features;area:runtime;role:runtime",3GPP Simulator,Epic: Phase 5 Features,Backlog
