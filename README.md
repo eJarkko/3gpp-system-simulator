@@ -38,5 +38,17 @@ The demo will:
 - Execute a simple pipeline (analysis → review → evaluation)
 - Print a JSON report including steps and a final verdict
 
+### Prompt-only Execution (no code)
+
+If you want to run this as a single LLM prompt (without any program), copy one of these:
+
+- Full Orchestrator Prompt: `agentic/templates/prompt_orchestrator.md`
+
+Usage:
+1. Open your LLM/chat interface.
+2. Paste the prompt content.
+3. Replace `<<TASK>>` with your task, e.g., "Generate meta templates for defined agentic roles".
+4. Send. The model will simulate coordinator and specialist roles, and output structured JSON + a summary.
+
 ## Notes
 - The runtime logic is currently inlined in `3gpp_simulator.html`. TypeScript files in the repo define models and serve as references for a future modular build.
