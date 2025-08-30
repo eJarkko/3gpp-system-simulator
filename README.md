@@ -18,6 +18,9 @@ Prerequisites: Node.js (LTS recommended)
 
 ## Documentation
 - Architecture overview: see `ARCHITECTURE.md`
+- Workplan and roles: see `docs/WORKPLAN.md`, `docs/TEAM_ROLES.md`
+- Linear workflow and backlog import: see `docs/linear/README.md`, `docs/linear/backlog.csv`
+- ADRs: see `docs/adr/` (e.g., `0001-adopt-modular-ts-build.md`)
 
 ## Notes
 - The runtime logic is currently inlined in `3gpp_simulator.html`. TypeScript files in the repo define models and serve as references for a future modular build.
