@@ -1,14 +1,23 @@
-# Run and deploy your AI Studio app
+# 3GPP System Simulator
 
-This contains everything you need to run your app locally.
+An interactive canvas-based simulator that illustrates 3GPP RAN and NTN behaviors: UE mobility, coverage, access, HO, and throughput sharing.
 
-## Run Locally
+## Get Started
 
-**Prerequisites:**  Node.js
-
+Prerequisites: Node.js (LTS recommended)
 
 1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+   ```bash
+   npm install
+   ```
+2. Open `3gpp_simulator.html` directly in a browser for the current inlined build, or use Vite for local hosting:
+   ```bash
+   npm run dev
+   ```
+   Then open the printed local URL in your browser.
+
+## Documentation
+- Architecture overview: see `ARCHITECTURE.md`
+
+## Notes
+- The runtime logic is currently inlined in `3gpp_simulator.html`. TypeScript files in the repo define models and serve as references for a future modular build.
