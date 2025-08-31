@@ -11,10 +11,8 @@
     "test": "echo 'TODO: add Vitest' && exit 0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {
-
-  },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "@types/node": "^22.14.0",
     "typescript": "~5.7.2",
     "vite": "^6.2.0"
